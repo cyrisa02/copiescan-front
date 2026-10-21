@@ -9,6 +9,8 @@ import {
   ArrowLeft,
   Sparkles,
   PenLine,
+  MessageCircle,
+  Send,
 } from "lucide-react";
 import { toast } from "sonner";
 import Link from "next/link";
@@ -29,21 +31,30 @@ type CorrectionData = {
   structure_evaluee: string;
 };
 
+type ChatMessage = {
+  role: "user" | "assistant";
+  content: string;
+};
+
 export default function CorrectionPage() {
   const [imagesBase64, setImagesBase64] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<CorrectionData | null>(null);
 
-  // Paramètres pédagogiques persistants pour le mode rafale
   const [sujet, setSujet] = useState("");
   const [bareme, setBareme] = useState(20);
+
+  // États pour le Chat
+  const [showChat, setShowChat] = useState(false);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatInput, setChatInput] = useState("");
+  const [chatLoading, setChatLoading] = useState(false);
 
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
     reader.onloadend = () => {
-      // Ajoute l'image au tableau au lieu de remplacer
       setImagesBase64((prev) => [...prev, reader.result as string]);
       setData(null);
     };
@@ -94,18 +105,64 @@ export default function CorrectionPage() {
     }
   };
 
-  // Mode Rafale : Garde le sujet et le barème en mémoire
+  const sendChatMessage = async () => {
+    if (!chatInput.trim() || !data) return;
+
+    setChatLoading(true);
+    const userMessage: ChatMessage = { role: "user", content: chatInput };
+    const newMessages = [...chatMessages, userMessage];
+    setChatMessages(newMessages);
+    setChatInput("");
+
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+      const correctionContext = `
+Note: ${data.note}/${bareme}
+Appréciation: ${data.appreciation_generale}
+Structure: ${data.structure_evaluee}
+Points forts: ${data.points_forts.join(", ")}
+Axes d'amélioration: ${data.axes_amelioration.join(", ")}
+Erreurs: ${data.erreurs_details.map((e) => `${e.type_erreur}: ${e.explication}`).join("; ")}
+      `.trim();
+
+      const res = await fetch(`${apiUrl}/chat-correction`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messages: newMessages,
+          correction_context: correctionContext,
+        }),
+      });
+
+      if (!res.ok) throw new Error();
+      const result = await res.json();
+
+      setChatMessages([
+        ...newMessages,
+        { role: "assistant", content: result.response },
+      ]);
+    } catch (err) {
+      toast.error("Erreur de communication avec l'IA");
+    } finally {
+      setChatLoading(false);
+    }
+  };
+
   const resetForNextCopy = () => {
     setData(null);
     setImagesBase64([]);
+    setShowChat(false);
+    setChatMessages([]);
   };
 
-  // Nouveau Sujet : Réinitialise tout
   const resetAll = () => {
     setData(null);
     setImagesBase64([]);
     setSujet("");
     setBareme(20);
+    setShowChat(false);
+    setChatMessages([]);
   };
 
   return (
@@ -134,10 +191,9 @@ export default function CorrectionPage() {
           </Link>
         </header>
 
-        {/* Zone de Saisie (si pas de résultat) */}
+        {/* Zone de Saisie */}
         {!data && (
           <div className="flex-1 flex flex-col gap-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
-            {/* Sujet & Barème */}
             <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-6 space-y-4">
               <div className="space-y-1">
                 <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">
@@ -167,7 +223,6 @@ export default function CorrectionPage() {
               </div>
             </div>
 
-            {/* Aperçu des pages scannées */}
             {imagesBase64.length > 0 && (
               <div className="space-y-2">
                 <div className="flex items-center justify-between px-1">
@@ -209,7 +264,6 @@ export default function CorrectionPage() {
               </div>
             )}
 
-            {/* Capture Photo */}
             <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-6 text-center relative overflow-hidden">
               <input
                 type="file"
@@ -259,13 +313,12 @@ export default function CorrectionPage() {
             </div>
 
             <p className="text-center text-[10px] text-slate-400 mt-2">
-              ️ RGPD : Les images sont traitées à la volée et ne sont jamais
+              ⚠️ RGPD : Les images sont traitées à la volée et ne sont jamais
               stockées.
             </p>
           </div>
         )}
 
-        {/* Loading State */}
         {loading && (
           <div className="flex-1 flex flex-col items-center justify-center text-center">
             <div className="w-16 h-16 border-4 border-indigo-100 border-t-indigo-600 rounded-full animate-spin mb-4"></div>
@@ -281,7 +334,6 @@ export default function CorrectionPage() {
         {/* Résultats Pédagogiques */}
         {data && !loading && (
           <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 space-y-4">
-            {/* Carte Note Principale */}
             <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
               <div className="bg-gradient-to-r from-indigo-600 to-blue-600 p-6 text-center text-white">
                 <p className="text-xs font-medium opacity-80 uppercase tracking-widest mb-1">
@@ -314,7 +366,6 @@ export default function CorrectionPage() {
               </div>
             </div>
 
-            {/* Points Forts & Axes d'amélioration */}
             <div className="grid grid-cols-2 gap-3">
               <div className="bg-green-50/50 rounded-2xl p-4 border border-green-100">
                 <h4 className="text-xs font-bold text-green-700 uppercase mb-2 flex items-center gap-1">
@@ -349,7 +400,6 @@ export default function CorrectionPage() {
               </div>
             </div>
 
-            {/* Détail des Erreurs */}
             {data.erreurs_details.length > 0 && (
               <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-6 space-y-4">
                 <h3 className="font-semibold text-slate-800 flex items-center gap-2">
@@ -376,7 +426,7 @@ export default function CorrectionPage() {
                         {err.explication}
                       </p>
                       <p className="text-xs text-indigo-600 bg-indigo-50/50 p-2 rounded-lg">
-                        💡 {err.suggestion}
+                        {err.suggestion}
                       </p>
                     </div>
                   ))}
@@ -384,9 +434,78 @@ export default function CorrectionPage() {
               </div>
             )}
 
-            {/* Actions Finales - Mode Rafale vs Nouveau Sujet */}
+            {/* Fenêtre de Chat */}
+            <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
+              <button
+                onClick={() => setShowChat(!showChat)}
+                className="w-full p-4 flex items-center justify-between bg-slate-50 hover:bg-slate-100 transition"
+              >
+                <span className="font-semibold text-slate-800 flex items-center gap-2 text-sm">
+                  <MessageCircle className="w-4 h-4 text-indigo-600" /> Poser
+                  une question sur la correction
+                </span>
+                <span className="text-slate-400 text-xs">
+                  {showChat ? "▼" : "▶"}
+                </span>
+              </button>
+
+              {showChat && (
+                <div className="p-4 space-y-4">
+                  <div className="h-64 overflow-y-auto space-y-3 bg-slate-50 rounded-xl p-3">
+                    {chatMessages.length === 0 ? (
+                      <p className="text-sm text-slate-400 text-center py-8">
+                        Posez une question sur la correction...
+                      </p>
+                    ) : (
+                      chatMessages.map((msg, idx) => (
+                        <div
+                          key={idx}
+                          className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+                        >
+                          <div
+                            className={`max-w-[85%] px-3 py-2 rounded-xl text-sm ${
+                              msg.role === "user"
+                                ? "bg-indigo-600 text-white"
+                                : "bg-white border border-slate-200 text-slate-800"
+                            }`}
+                          >
+                            {msg.content}
+                          </div>
+                        </div>
+                      ))
+                    )}
+                    {chatLoading && (
+                      <div className="flex justify-start">
+                        <div className="bg-white border border-slate-200 px-3 py-2 rounded-xl">
+                          <Loader2 className="w-4 h-4 animate-spin text-slate-400" />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={chatInput}
+                      onChange={(e) => setChatInput(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && sendChatMessage()}
+                      placeholder="Ex: Pourquoi cette note ? Comment améliorer l'intro ?"
+                      className="flex-1 px-3 py-2 text-sm border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-100 focus:outline-none"
+                    />
+                    <button
+                      onClick={sendChatMessage}
+                      disabled={chatLoading || !chatInput.trim()}
+                      className="px-4 py-2 bg-indigo-600 text-white rounded-xl font-medium hover:bg-indigo-700 disabled:opacity-50 transition"
+                    >
+                      <Send className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Actions Finales */}
             <div className="pt-4 pb-8 grid grid-cols-2 gap-3">
-              {/* Bouton 1 : Nouvelle copie (Garde le sujet et le barème) */}
               <button
                 onClick={resetForNextCopy}
                 className="flex flex-col items-center justify-center py-4 rounded-xl font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-100 transition gap-2"
@@ -398,7 +517,6 @@ export default function CorrectionPage() {
                 </span>
               </button>
 
-              {/* Bouton 2 : Changer de sujet (Réinitialise TOUT) */}
               <button
                 onClick={resetAll}
                 className="flex flex-col items-center justify-center py-4 rounded-xl font-semibold text-slate-600 bg-white hover:bg-slate-50 border border-slate-200 transition gap-2"
