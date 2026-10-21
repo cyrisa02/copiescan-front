@@ -30,7 +30,7 @@ type CorrectionData = {
 };
 
 export default function CorrectionPage() {
-  const [imageBase64, setImageBase64] = useState<string | null>(null);
+  const [imagesBase64, setImagesBase64] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<CorrectionData | null>(null);
 
@@ -43,16 +43,21 @@ export default function CorrectionPage() {
     if (!file) return;
     const reader = new FileReader();
     reader.onloadend = () => {
-      setImageBase64(reader.result as string);
+      // Ajoute l'image au tableau au lieu de remplacer
+      setImagesBase64((prev) => [...prev, reader.result as string]);
       setData(null);
     };
     reader.readAsDataURL(file);
   };
 
+  const removeImage = (index: number) => {
+    setImagesBase64((prev) => prev.filter((_, i) => i !== index));
+  };
+
   const handleScan = async () => {
-    if (!imageBase64 || !sujet.trim()) {
+    if (imagesBase64.length === 0 || !sujet.trim()) {
       toast.error("Informations manquantes", {
-        description: "Merci d'ajouter une photo ET le sujet de la copie.",
+        description: "Ajoute au moins une page ET le sujet.",
       });
       return;
     }
@@ -65,7 +70,7 @@ export default function CorrectionPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          image_base64: imageBase64,
+          images_base64: imagesBase64,
           matiere: "Français",
           consigne: sujet,
           bareme: bareme,
@@ -77,7 +82,7 @@ export default function CorrectionPage() {
       setData(result);
 
       toast.success("Copie corrigée !", {
-        description: `Note estimée : ${result.note}/${bareme}`,
+        description: `${imagesBase64.length} page(s) analysée(s) - Note: ${result.note}/${bareme}`,
       });
     } catch (err: any) {
       console.error(err);
@@ -92,13 +97,13 @@ export default function CorrectionPage() {
   // Mode Rafale : Garde le sujet et le barème en mémoire
   const resetForNextCopy = () => {
     setData(null);
-    setImageBase64(null);
+    setImagesBase64([]);
   };
 
   // Nouveau Sujet : Réinitialise tout
   const resetAll = () => {
     setData(null);
-    setImageBase64(null);
+    setImagesBase64([]);
     setSujet("");
     setBareme(20);
   };
@@ -162,6 +167,48 @@ export default function CorrectionPage() {
               </div>
             </div>
 
+            {/* Aperçu des pages scannées */}
+            {imagesBase64.length > 0 && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between px-1">
+                  <span className="text-xs font-bold text-slate-400 uppercase">
+                    Pages scannées ({imagesBase64.length})
+                  </span>
+                  <button
+                    onClick={() => setImagesBase64([])}
+                    className="text-xs text-red-500 hover:text-red-600 font-medium"
+                  >
+                    Tout supprimer
+                  </button>
+                </div>
+                <div className="flex gap-3 overflow-x-auto pb-2 snap-x">
+                  {imagesBase64.map((img, idx) => (
+                    <div
+                      key={idx}
+                      className="relative flex-shrink-0 snap-start"
+                    >
+                      <div className="w-32 h-44 bg-slate-100 rounded-xl overflow-hidden border border-slate-200">
+                        <img
+                          src={img}
+                          alt={`Page ${idx + 1}`}
+                          className="w-full h-full object-contain"
+                        />
+                      </div>
+                      <div className="absolute -top-2 -left-2 w-6 h-6 bg-indigo-600 text-white text-xs font-bold rounded-full flex items-center justify-center">
+                        {idx + 1}
+                      </div>
+                      <button
+                        onClick={() => removeImage(idx)}
+                        className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center shadow-md hover:bg-red-600"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Capture Photo */}
             <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-6 text-center relative overflow-hidden">
               <input
@@ -173,51 +220,38 @@ export default function CorrectionPage() {
                 onChange={handleImageChange}
               />
 
-              {imageBase64 ? (
-                <div className="relative aspect-[3/4] rounded-2xl overflow-hidden mb-4 bg-slate-100 border border-slate-200">
-                  <img
-                    src={imageBase64}
-                    alt="Preview Copie"
-                    className="w-full h-full object-contain"
-                  />
-                  <button
-                    onClick={() => setImageBase64(null)}
-                    className="absolute top-3 right-3 bg-black/50 text-white p-2 rounded-full backdrop-blur-sm hover:bg-black/70 transition"
-                  >
-                    <AlertCircle className="w-4 h-4" />
-                  </button>
+              <label htmlFor="copy-input" className="cursor-pointer block">
+                <div className="w-16 h-16 bg-indigo-50 rounded-full flex items-center justify-center mx-auto mb-3">
+                  <Camera className="w-7 h-7 text-indigo-600" />
                 </div>
-              ) : (
-                <label
-                  htmlFor="copy-input"
-                  className="cursor-pointer block py-12"
-                >
-                  <div className="w-20 h-20 bg-indigo-50 rounded-full flex items-center justify-center mx-auto mb-4 group-hover:scale-110 transition-transform duration-300">
-                    <Camera className="w-8 h-8 text-indigo-600" />
-                  </div>
-                  <h3 className="text-lg font-semibold text-slate-800 mb-1">
-                    Photographier la copie
-                  </h3>
-                  <p className="text-sm text-slate-500">
-                    Assurez-vous que l'écriture est nette et bien éclairée
-                  </p>
-                </label>
-              )}
+                <h3 className="text-base font-semibold text-slate-800 mb-1">
+                  {imagesBase64.length === 0
+                    ? "Scanner la copie"
+                    : "Ajouter une page"}
+                </h3>
+                <p className="text-sm text-slate-500">
+                  {imagesBase64.length === 0
+                    ? "Prends une photo de la première page"
+                    : `Page ${imagesBase64.length + 1}`}
+                </p>
+              </label>
 
-              {imageBase64 && (
+              {imagesBase64.length > 0 && (
                 <button
                   onClick={handleScan}
                   disabled={loading}
-                  className="w-full bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white font-semibold py-4 rounded-xl shadow-lg shadow-indigo-200 transition-all flex items-center justify-center gap-2 mt-2"
+                  className="w-full bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white font-semibold py-4 rounded-xl shadow-lg shadow-indigo-200 transition-all flex items-center justify-center gap-2 mt-4"
                 >
                   {loading ? (
                     <>
-                      <Loader2 className="w-5 h-5 animate-spin" /> Correction en
+                      <Loader2 className="w-5 h-5 animate-spin" /> Analyse en
                       cours...
                     </>
                   ) : (
                     <>
-                      <Sparkles className="w-5 h-5" /> Lancer la correction
+                      <Sparkles className="w-5 h-5" /> Corriger la copie (
+                      {imagesBase64.length} page
+                      {imagesBase64.length > 1 ? "s" : ""})
                     </>
                   )}
                 </button>
@@ -225,7 +259,7 @@ export default function CorrectionPage() {
             </div>
 
             <p className="text-center text-[10px] text-slate-400 mt-2">
-              ⚠️ RGPD : Les images sont traitées à la volée et ne sont jamais
+              ️ RGPD : Les images sont traitées à la volée et ne sont jamais
               stockées.
             </p>
           </div>
